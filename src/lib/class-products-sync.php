@@ -73,7 +73,7 @@ class Products_Sync {
 	 * Sync single product.
 	 *
 	 * @param int        $product_id Product ID.
-	 * @param API24|null $api_24 Balance instance.
+	 * @param API24|null $api_24 API24 instance.
 	 * @return void
 	 * @since 1.0.0
 	 */
@@ -111,7 +111,7 @@ class Products_Sync {
 			}
 
 			try {
-				$api_product = $balance->get_product( $sku );
+				$api_product = $api_24->get_product( $sku );
 			} catch ( Exception $e ) {
 				continue;
 			}

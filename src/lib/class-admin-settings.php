@@ -82,6 +82,7 @@ class Admin_Settings {
 					[
 						'base_url' => isset( $_POST['base_url'] ) ? sanitize_text_field( wp_unslash( $_POST['base_url'] ) ) : '',
 						'token'    => isset( $_POST['token'] ) ? sanitize_text_field( wp_unslash( $_POST['token'] ) ) : '',
+						'merchant' => isset( $_POST['merchant'] ) ? sanitize_text_field( wp_unslash( $_POST['merchant'] ) ) : '',
 						'debug'    => isset( $_POST['debug'] ) ? 'yes' : 'no',
 					]
 				)
@@ -115,7 +116,14 @@ class Admin_Settings {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'API Token', 'nebu-api24' ); ?></th>
 						<td>
-							<input type="text" class="regular-text" name="username" value="<?php echo esc_attr( $settings['token'] ?? '' ); ?>">
+							<input type="text" class="regular-text" name="token" value="<?php echo esc_attr( $settings['token'] ?? '' ); ?>">
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Merchant ID', 'nebu-api24' ); ?></th>
+						<td>
+							<input type="text" class="regular-text" name="merchant" value="<?php echo esc_attr( $settings['merchant'] ?? '' ); ?>">
 						</td>
 					</tr>
 

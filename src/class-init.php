@@ -18,6 +18,7 @@ use Nebu\API24\Lib\Admin_Notices;
 use Nebu\API24\Lib\Admin_Settings;
 use Automattic\WooCommerce\Utilities\FeaturesUtil;
 use Nebu\API24\Lib\WC;
+use Nebu\API24\Lib\DB;
 
 /**
  * The plugin initialization class.
@@ -142,5 +143,6 @@ class Init {
 	public static function dependencies(): void {
 		new Admin_Settings();
 		new WC();
+		new DB();
 	}
 }

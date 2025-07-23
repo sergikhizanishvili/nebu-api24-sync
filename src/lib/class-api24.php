@@ -191,6 +191,225 @@ class API24 {
 	}
 
 	/**
+	 * Run complete synchronization process.
+	 *
+	 * @return void
+	 * @throws Exception If something goes wrong.
+	 * @since 1.0.0
+	 */
+	public function run_full_sync(): void {
+		$this->log( 'Starting full synchronization process' );
+
+		$this->log( 'Step 1: Syncing categories from API24' );
+		$this->categories();
+
+		$this->log( 'Step 2: Syncing products from API24' );
+		$this->products();
+
+		$this->log( 'Step 3: Creating WooCommerce products' );
+		$this->create_products();
+
+		$this->log( 'Step 4: Cleaning up empty categories' );
+		$this->delete_empty_api24_categories();
+
+		$this->log( 'Full synchronization process completed successfully' );
+	}
+
+	/**
+	 * Sync product stock and prices from API24 database to WooCommerce.
+	 *
+	 * @return void
+	 * @since 1.0.0
+	 */
+	public function sync_product_data(): void {
+		$this->log( 'Starting product data synchronization process' );
+
+		$this->log( 'Step 1: Syncing products from API24' );
+		$this->products();
+
+		$this->log( 'Step 2: Updating WooCommerce product data' );
+		$this->update_woocommerce_product_data();
+
+		$this->log( 'Product data synchronization completed successfully' );
+	}
+
+	/**
+	 * Update WooCommerce product data from API24 database.
+	 *
+	 * @return void
+	 * @since 1.0.0
+	 */
+	private function update_woocommerce_product_data(): void {
+		$api24_products = DB::get_all_products();
+
+		if ( empty( $api24_products ) ) {
+			$this->log( 'No products found in API24 database to sync' );
+			return;
+		}
+
+		$updated_count = 0;
+		$skipped_count = 0;
+
+		foreach ( $api24_products as $api24_product ) {
+			$sku = $api24_product['sku'] ?? '';
+
+			if ( empty( $sku ) ) {
+				++$skipped_count;
+				continue;
+			}
+
+			$wc_product_id = wc_get_product_id_by_sku( $sku );
+
+			if ( ! $wc_product_id ) {
+				$this->log( sprintf( 'WooCommerce product not found for SKU: %s', $sku ) );
+				++$skipped_count;
+				continue;
+			}
+
+			$wc_product = wc_get_product( $wc_product_id );
+
+			if ( ! $wc_product ) {
+				$this->log( sprintf( 'Failed to load WooCommerce product for SKU: %s', $sku ) );
+				++$skipped_count;
+				continue;
+			}
+
+			$updated = $this->update_single_product_data( $wc_product, $api24_product );
+
+			if ( $updated ) {
+				++$updated_count;
+				$this->log( sprintf( 'Updated product data for SKU: %s', $sku ) );
+			} else {
+				++$skipped_count;
+			}
+		}
+
+		$this->log( sprintf( 'Product data sync completed. Updated: %d, Skipped: %d', $updated_count, $skipped_count ) );
+	}
+
+	/**
+	 * Update a single WooCommerce product with API24 data.
+	 *
+	 * @param \WC_Product $wc_product The WooCommerce product.
+	 * @param array       $api24_product The API24 product data.
+	 * @return bool True if updated, false otherwise.
+	 * @since 1.0.0
+	 */
+	private function update_single_product_data( \WC_Product $wc_product, array $api24_product ): bool {
+		$updated = false;
+
+		$stock = (int) ( $api24_product['stock'] ?? 0 );
+		if ( $wc_product->get_stock_quantity() !== $stock ) {
+			$wc_product->set_stock_quantity( $stock );
+			$wc_product->set_stock_status( $stock > 0 ? 'instock' : 'outofstock' );
+			$updated = true;
+		}
+
+		$price = (float) ( $api24_product['price'] ?? 0 );
+		if ( $price > 0 && (float) $wc_product->get_regular_price() !== $price ) {
+			$wc_product->set_regular_price( $price );
+			$updated = true;
+		}
+
+		$sale_price = (float) ( $api24_product['sale_price'] ?? 0 );
+		if ( $sale_price > 0 && (float) $wc_product->get_sale_price() !== $sale_price ) {
+			$wc_product->set_sale_price( $sale_price );
+			$updated = true;
+		}
+
+		if ( $updated ) {
+			$wc_product->save();
+		}
+
+		return $updated;
+	}
+
+	/**
+	 * Delete API24 categories that have no products assigned.
+	 *
+	 * @return void
+	 * @since 1.0.0
+	 */
+	public function delete_empty_api24_categories(): void {
+		$terms = get_terms(
+			[
+				'taxonomy'   => 'product_cat',
+				'hide_empty' => false,
+				'meta_query' => [ // phpcs:ignore
+					'relation' => 'AND',
+					[
+						'key'     => 'category_api24_id',
+						'value'   => '',
+						'compare' => '!=',
+					],
+					[
+						'key'     => 'category_api24_id',
+						'compare' => 'EXISTS',
+					],
+				],
+			]
+		);
+
+		if ( is_wp_error( $terms ) || empty( $terms ) ) {
+			$this->log( 'No API24 categories found to check for deletion' );
+			return;
+		}
+
+		$deleted_count = 0;
+		foreach ( $terms as $term ) {
+			$product_count = $this->get_category_product_count( $term->term_id );
+
+			if ( 0 === $product_count ) {
+				$category_api24_id = get_field( 'category_api24_id', 'term_' . $term->term_id );
+				$result            = wp_delete_term( $term->term_id, 'product_cat' );
+
+				if ( ! is_wp_error( $result ) && $result ) {
+					++$deleted_count;
+					$this->log( sprintf( 'Deleted empty category: %s (API24 ID: %s)', $term->name, $category_api24_id ) );
+				} else {
+					$this->log( sprintf( 'Failed to delete category: %s (API24 ID: %s)', $term->name, $category_api24_id ) );
+				}
+			}
+		}
+
+		$this->log( sprintf( 'Deleted %d empty API24 categories', $deleted_count ) );
+	}
+
+	/**
+	 * Get the number of products in a category (including child categories).
+	 *
+	 * @param int $term_id The category term ID.
+	 * @return int
+	 * @since 1.0.0
+	 */
+	private function get_category_product_count( int $term_id ): int {
+		$child_terms = get_term_children( $term_id, 'product_cat' );
+		$term_ids    = [ $term_id ];
+
+		if ( ! is_wp_error( $child_terms ) && ! empty( $child_terms ) ) {
+			$term_ids = array_merge( $term_ids, $child_terms );
+		}
+
+		$products = get_posts(
+			[
+				'post_type'      => 'product',
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+				'tax_query'      => [ // phpcs:ignore
+					[
+						'taxonomy' => 'product_cat',
+						'field'    => 'term_id',
+						'terms'    => $term_ids,
+					],
+				],
+			]
+		);
+
+		return count( $products );
+	}
+
+	/**
 	 * Write WC log.
 	 *
 	 * @param string $message Message to log.

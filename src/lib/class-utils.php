@@ -336,11 +336,11 @@ class Utils {
 	/**
 	 * Delete all attachments (images) associated with a product.
 	 *
-	 * @param WC_Product $product The product object.
+	 * @param object $product The product object.
 	 * @return void
 	 * @since 1.0.0
 	 */
-	private static function delete_product_attachments( WC_Product $product ): void {
+	private static function delete_product_attachments( object $product ): void {
 
 		$featured_image_id = $product->get_image_id();
 		if ( $featured_image_id ) {

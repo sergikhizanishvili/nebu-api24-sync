@@ -189,6 +189,24 @@ class DB {
 	}
 
 	/**
+	 * Get all products from the API24 database.
+	 *
+	 * @return array
+	 * @since 1.0.0
+	 */
+	public static function get_all_products(): array {
+		global $wpdb;
+
+		$query = 'SELECT * FROM ' . NEBU_API24_TABLE_PRODUCTS; // phpcs:ignore
+		$products = $wpdb->get_results( $query, ARRAY_A ); // phpcs:ignore
+		if ( ! $products ) {
+			return [];
+		}
+
+		return $products;
+	}
+
+	/**
 	 * Migrate api24 products table.
 	 *
 	 * @return void

@@ -143,6 +143,29 @@ class DB {
 	}
 
 	/**
+	 * Get products like barcode.
+	 *
+	 * @param string $barcode The barcode to search for.
+	 * @return array
+	 * @since 1.0.0
+	 */
+	public static function get_products_like_barcode( string $barcode ): array {
+		global $wpdb;
+
+		$query = $wpdb->prepare(
+			'SELECT * FROM ' . NEBU_API24_TABLE_PRODUCTS . ' WHERE barcode LIKE %s', // phpcs:ignore
+			$wpdb->esc_like( $barcode ) . '_%'
+		);
+
+		$products = $wpdb->get_results( $query, ARRAY_A ); // phpcs:ignore
+		if ( ! $products ) {
+			return [];
+		}
+
+		return $products;
+	}
+
+	/**
 	 * Get products from the database by barcode.
 	 *
 	 * @param string $barcode The barcode to search for.
@@ -179,10 +202,8 @@ class DB {
 		if ( $wpdb->get_var( $query ) !== NEBU_API24_TABLE_PRODUCTS ) {
 			$wpdb->query( 'CREATE TABLE ' . NEBU_API24_TABLE_PRODUCTS . ' (
 				id INT(11) UNSIGNED AUTO_INCREMENT NOT NULL PRIMARY KEY,
-				parent_id INT(11) UNSIGNED NULL,
 				product_id VARCHAR(255) NOT NULL,
 				category_id VARCHAR(255) NOT NULL,
-				categories TEXT NULL,
 				name TEXT NOT NULL,
 				description TEXT NULL,
 				sku VARCHAR(255) NULL,

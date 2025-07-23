@@ -94,6 +94,59 @@ class Utils {
 	}
 
 	/**
+	 * Handle remote image upload.
+	 *
+	 * @param string $file_url Remote file URL.
+	 * @param array  $allowed  Allowed MIME types.
+	 * @return int|null Attachment ID or null on failure.
+	 * @since 1.0.0
+	 */
+	public static function handle_remote_file_upload( string $file_url, array $allowed = [] ): ?int {
+		$allowed = ! empty( $allowed ) ? $allowed : [
+			'image/jpg'  => 'jpg',
+			'image/jpeg' => 'jpeg',
+			'image/png'  => 'png',
+		];
+
+		if ( empty( $file_url ) || ! filter_var( $file_url, FILTER_VALIDATE_URL ) ) {
+			return null;
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+
+		// Get the file name and check MIME type.
+		$file_name = basename( wp_parse_url( $file_url, PHP_URL_PATH ) );
+		$tmp       = download_url( $file_url );
+
+		if ( is_wp_error( $tmp ) ) {
+			return null;
+		}
+
+		$mime = mime_content_type( $tmp );
+		if ( ! in_array( $mime, array_keys( $allowed ), true ) ) {
+			@unlink( $tmp ); // phpcs:ignore
+			return null;
+		}
+
+		$file_array = [
+			'name'     => $file_name,
+			'type'     => $mime,
+			'tmp_name' => $tmp,
+		];
+
+		$attachment_id = media_handle_sideload( $file_array, 0 );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			@unlink( $tmp ); // phpcs:ignore
+			return null;
+		}
+
+		return $attachment_id;
+	}
+
+	/**
 	 * Build a category tree from a flat list of categories.
 	 *
 	 * @param array $categories The flat list of categories.
@@ -190,6 +243,113 @@ class Utils {
 			foreach ( $terms as $term ) {
 				wp_delete_term( $term->term_id, 'product_cat' );
 			}
+		}
+	}
+
+	/**
+	 * Find WordPress category by API24 category ID.
+	 *
+	 * @param string $api24_category_id The API24 category ID.
+	 * @return ?int WordPress category term ID or null if not found.
+	 * @since 1.0.0
+	 */
+	public static function find_category_by_api24_id( string $api24_category_id ): ?int {
+		$terms = get_terms(
+			[
+				'taxonomy'   => 'product_cat',
+				'hide_empty' => false,
+				'meta_query' => [ // phpcs:ignore
+					[
+						'key'     => 'category_api24_id',
+						'value'   => $api24_category_id,
+						'compare' => '=',
+					],
+				],
+				'number'     => 1,
+			]
+		);
+
+		if ( is_wp_error( $terms ) || empty( $terms ) ) {
+			return null;
+		}
+
+		return (int) $terms[0]->term_id;
+	}
+
+	/**
+	 * Get all parent category IDs for a given category.
+	 *
+	 * @param int $category_id The category term ID.
+	 * @return array Array of category IDs including the given category and all its parents.
+	 * @since 1.0.0
+	 */
+	public static function get_category_hierarchy( int $category_id ): array {
+		$hierarchy = [ $category_id ];
+		$parent_id = wp_get_term_taxonomy_parent_id( $category_id, 'product_cat' );
+
+		while ( $parent_id && $parent_id > 0 ) {
+			$hierarchy[] = $parent_id;
+			$parent_id   = wp_get_term_taxonomy_parent_id( $parent_id, 'product_cat' );
+		}
+
+		return array_reverse( $hierarchy );
+	}
+
+	/**
+	 * Delete all WooCommerce products created from API24 data.
+	 * This includes variable products, simple products, variations, and all associated meta data.
+	 *
+	 * @return void
+	 * @since 1.0.0
+	 */
+	public static function delete_all_api24_products(): void {
+		$products = wc_get_products(
+			[
+				'limit'      => -1,
+				'meta_query' => [ // phpcs:ignore
+					[
+						'key'     => 'base_barcode',
+						'compare' => 'EXISTS',
+					],
+				],
+			]
+		);
+
+		foreach ( $products as $product ) {
+			if ( $product->is_type( 'variable' ) ) {
+				$variations = $product->get_children();
+
+				foreach ( $variations as $variation_id ) {
+					$variation = wc_get_product( $variation_id );
+					if ( $variation ) {
+						self::delete_product_attachments( $variation );
+						wp_delete_post( $variation_id, true );
+					}
+				}
+			}
+
+			self::delete_product_attachments( $product );
+			wp_delete_post( $product->get_id(), true );
+		}
+	}
+
+	/**
+	 * Delete all attachments (images) associated with a product.
+	 *
+	 * @param WC_Product $product The product object.
+	 * @return void
+	 * @since 1.0.0
+	 */
+	private static function delete_product_attachments( WC_Product $product ): void {
+
+		$featured_image_id = $product->get_image_id();
+		if ( $featured_image_id ) {
+			wp_delete_attachment( $featured_image_id, true );
+		}
+
+		$gallery_images = $product->get_gallery_image_ids();
+		foreach ( $gallery_images as $attachment_id ) {
+			wp_delete_attachment( $attachment_id, true );
 		}
 	}
 }
